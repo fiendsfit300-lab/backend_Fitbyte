@@ -1,0 +1,191 @@
+﻿using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Gym_FitByte.Data;
+using Gym_FitByte.Models;
+using Gym_FitByte.DTOs;
+using Gym_FitByte.Services;
+
+namespace Gym_FitByte.Controllers
+{
+    [ApiController]
+    [Route("api/[controller]")]
+    public class VentasController : ControllerBase
+    {
+        private readonly AppDbContext _context;
+        private readonly IInventarioService _inventarioService;
+
+        public VentasController(AppDbContext context, IInventarioService inventarioService)
+        {
+            _context = context;
+            _inventarioService = inventarioService;
+        }
+
+        // ============================================================
+        // CREAR VENTA
+        // ============================================================
+        [HttpPost("crear")]
+        public async Task<IActionResult> Crear([FromBody] CrearVentaDto dto)
+        {
+            if (dto.Items == null || dto.Items.Count == 0)
+                return BadRequest("Debe incluir al menos un producto.");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+
+            try
+            {
+                // Validar productos
+                var ids = dto.Items.Select(i => i.ProductoId).ToList();
+
+                var productos = await _context.Productos
+                    .Where(p => ids.Contains(p.Id) && p.Activo)
+                    .ToListAsync();
+
+                if (productos.Count != ids.Count)
+                    return BadRequest("Uno o más productos no existen o están inactivos.");
+
+                // Verificar stock suficiente
+                foreach (var item in dto.Items)
+                {
+                    var stock = await _inventarioService.ObtenerStockActual(item.ProductoId);
+                    if (stock < item.Cantidad)
+                    {
+                        var p = productos.First(x => x.Id == item.ProductoId);
+                        return BadRequest($"Stock insuficiente para '{p.Nombre}'. Disponible: {stock}, solicitado: {item.Cantidad}");
+                    }
+                }
+
+                // Crear venta
+                var venta = new Venta
+                {
+                    Cliente = dto.Cliente,
+                    FechaVenta = dto.FechaVenta,
+                    TipoVenta = dto.TipoVenta,
+                    Completada = true
+                };
+
+                _context.Ventas.Add(venta);
+                await _context.SaveChangesAsync();
+
+                // Crear items
+                foreach (var item in dto.Items)
+                {
+                    var prod = productos.First(p => p.Id == item.ProductoId);
+                    decimal precio = item.PrecioUnitario > 0 ? item.PrecioUnitario : prod.Precio;
+                    decimal subtotal = precio * item.Cantidad;
+
+                    venta.Items.Add(new VentaItem
+                    {
+                        VentaId = venta.Id,
+                        ProductoId = prod.Id,
+                        Cantidad = item.Cantidad,
+                        PrecioUnitario = precio,
+                        Subtotal = subtotal
+                    });
+                }
+
+                venta.Total = venta.Items.Sum(i => i.Subtotal);
+
+                await _context.SaveChangesAsync();
+
+                // Descontar del inventario
+                await _inventarioService.ActualizarInventarioVenta(venta.Id);
+
+                await transaction.CommitAsync();
+
+                return Ok(new
+                {
+                    mensaje = "Venta registrada exitosamente.",
+                    venta.Id,
+                    venta.Total,
+                    items = venta.Items.Count
+                });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, $"Error al crear la venta: {ex.Message}");
+            }
+        }
+
+        // ============================================================
+        // LISTAR VENTAS
+        // ============================================================
+        [HttpGet]
+        public async Task<IActionResult> Listar()
+        {
+            var ventas = await _context.Ventas
+                .Include(v => v.Items)
+                    .ThenInclude(i => i.Producto)
+                .OrderByDescending(v => v.FechaVenta)
+                .Select(v => new
+                {
+                    v.Id,
+                    v.Cliente,
+                    v.FechaVenta,
+                    v.Total,
+                    v.TipoVenta,
+                    Items = v.Items.Select(i => new
+                    {
+                        i.ProductoId,
+                        Nombre = i.Producto!.Nombre,
+                        Foto = i.Producto.FotoUrl,
+                        i.Cantidad,
+                        i.PrecioUnitario,
+                        i.Subtotal
+                    })
+                })
+                .ToListAsync();
+
+            return Ok(ventas);
+        }
+
+        // ============================================================
+        // DETALLE DE VENTA
+        // ============================================================
+        [HttpGet("{id:int}")]
+        public async Task<IActionResult> Detalle(int id)
+        {
+            var venta = await _context.Ventas
+                .Include(v => v.Items)
+                    .ThenInclude(i => i.Producto)
+                .FirstOrDefaultAsync(v => v.Id == id);
+
+            if (venta == null)
+                return NotFound("Venta no encontrada.");
+
+            return Ok(new
+            {
+                venta.Id,
+                venta.Cliente,
+                venta.FechaVenta,
+                venta.TipoVenta,
+                venta.Total,
+                Items = venta.Items.Select(i => new
+                {
+                    i.ProductoId,
+                    Nombre = i.Producto!.Nombre,
+                    Foto = i.Producto.FotoUrl,
+                    i.Cantidad,
+                    i.PrecioUnitario,
+                    i.Subtotal
+                })
+            });
+        }
+
+        // ============================================================
+        // BUSCAR VENTAS POR CLIENTE
+        // ============================================================
+        [HttpGet("por-cliente/{cliente}")]
+        public async Task<IActionResult> PorCliente(string cliente)
+        {
+            var ventas = await _context.Ventas
+                .Include(v => v.Items)
+                    .ThenInclude(i => i.Producto)
+                .Where(v => v.Cliente.ToLower().Contains(cliente.ToLower()))
+                .OrderByDescending(v => v.FechaVenta)
+                .ToListAsync();
+
+            return Ok(ventas);
+        }
+    }
+}

@@ -1,0 +1,32 @@
+# Archivos binarios y compilados
+bin/
+obj/
+out/
+*.dll
+*.exe
+*.pdb
+*.cache
+*.log
+
+# Configuración de usuario
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Archivos de publicación
+.publish/
+dist/
+node_modules/
+
+# Archivos del sistema
+Thumbs.db
+.DS_Store
+
+# Secretos / claves locales
+appsettings.Development.json
+appsettings.Local.json
+.env
