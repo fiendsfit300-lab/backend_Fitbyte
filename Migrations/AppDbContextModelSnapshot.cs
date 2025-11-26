@@ -438,6 +438,12 @@ namespace Gym_FitByte.Migrations
                     b.Property<decimal>("Precio")
                         .HasColumnType("decimal(10,2)");
 
+                    b.Property<decimal>("PrecioFinal")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("PrecioUnitario")
+                        .HasColumnType("decimal(10,2)");
+
                     b.Property<int>("ProveedorId")
                         .HasColumnType("int");
 

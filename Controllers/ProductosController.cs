@@ -47,15 +47,27 @@ namespace Gym_FitByte.Controllers
             if (dto.Foto != null && dto.Foto.Length > 0)
                 fotoUrl = await SubirFotoABlob(dto.Foto);
 
+            // Aseguramos piezas mínimas
+            int piezas = dto.PiezasPorPaquete <= 0 ? 1 : dto.PiezasPorPaquete;
+
+            // Costo por pieza
+            decimal precioUnitario = piezas > 0 ? dto.Precio / piezas : dto.Precio;
+
+            // Precio final de venta por pieza:
+            // si no mandan nada o es 0, por default igual al costo (ya luego lo actualizan)
+            decimal precioFinal = dto.PrecioFinal > 0 ? dto.PrecioFinal : precioUnitario;
+
             var prod = new Producto
             {
                 ProveedorId = dto.ProveedorId,
                 Nombre = dto.Nombre,
-                Precio = dto.Precio,
+                Precio = dto.Precio,                  // paquete (costo)
+                PrecioUnitario = precioUnitario,      // costo por pieza
+                PrecioFinal = precioFinal,            // venta por pieza
                 Categoria = dto.Categoria,
                 FotoUrl = fotoUrl,
                 Activo = true,
-                PiezasPorPaquete = dto.PiezasPorPaquete   // ← CORRECTO
+                PiezasPorPaquete = piezas
             };
 
             _context.Productos.Add(prod);
@@ -103,22 +115,44 @@ namespace Gym_FitByte.Controllers
                 if (foto != null && foto.Length > 0)
                     fotoUrl = await SubirFotoABlob(foto);
 
+                int piezas = dto.PiezasPorPaquete.ElementAtOrDefault(i) <= 0
+                    ? 1
+                    : dto.PiezasPorPaquete[i];
+
+                decimal precioPaquete = dto.Precio.ElementAtOrDefault(i);
+                decimal precioUnitario = piezas > 0 ? precioPaquete / piezas : precioPaquete;
+
+                decimal precioFinal = 0;
+                if (dto.PrecioFinal != null && dto.PrecioFinal.Count > i)
+                {
+                    precioFinal = dto.PrecioFinal[i];
+                }
+                if (precioFinal <= 0)
+                    precioFinal = precioUnitario;
+
                 nuevos.Add(new Producto
                 {
                     ProveedorId = dto.ProveedorId,
                     Nombre = nombre,
-                    Precio = dto.Precio[i],
-                    Categoria = dto.Categoria[i],
+                    Precio = precioPaquete,
+                    PrecioUnitario = precioUnitario,
+                    PrecioFinal = precioFinal,
+                    Categoria = dto.Categoria.ElementAtOrDefault(i) ?? string.Empty,
                     FotoUrl = fotoUrl,
                     Activo = true,
-                    PiezasPorPaquete = dto.PiezasPorPaquete[i]   // ← CORRECTO
+                    PiezasPorPaquete = piezas
                 });
             }
 
             _context.Productos.AddRange(nuevos);
             await _context.SaveChangesAsync();
 
-            return Ok(new { mensaje = "Productos registrados.", registrados = nuevos.Count, errores });
+            return Ok(new
+            {
+                mensaje = "Productos registrados.",
+                registrados = nuevos.Count,
+                errores
+            });
         }
 
         // ============================================================
@@ -146,11 +180,21 @@ namespace Gym_FitByte.Controllers
                 prod.FotoUrl = await SubirFotoABlob(dto.Foto);
 
             prod.Nombre = dto.Nombre;
+
+            // Precio del paquete (costo)
             prod.Precio = dto.Precio;
+
+            // Recalcular costo por pieza
+            int piezas = dto.PiezasPorPaquete <= 0 ? 1 : dto.PiezasPorPaquete;
+            prod.PiezasPorPaquete = piezas;
+            prod.PrecioUnitario = piezas > 0 ? dto.Precio / piezas : dto.Precio;
+
+            // Actualizar precio final de venta (si mandan algo)
+            if (dto.PrecioFinal > 0)
+                prod.PrecioFinal = dto.PrecioFinal;
+
             prod.Categoria = dto.Categoria;
             prod.Activo = dto.Activo;
-
-            prod.PiezasPorPaquete = dto.PiezasPorPaquete;   // ← CORRECTO
 
             await _context.SaveChangesAsync();
             return Ok(new { mensaje = "Producto actualizado." });
@@ -180,13 +224,26 @@ namespace Gym_FitByte.Controllers
             var productos = await _context.Productos
                 .Where(p => p.ProveedorId == proveedorId && p.Activo)
                 .OrderBy(p => p.Nombre)
+                .Select(p => new
+                {
+                    p.Id,
+                    p.ProveedorId,
+                    p.Nombre,
+                    Precio = p.Precio,              // paquete (costo)
+                    PrecioUnitario = p.PrecioUnitario,
+                    PrecioFinal = p.PrecioFinal,    // venta
+                    p.Categoria,
+                    p.FotoUrl,
+                    p.Activo,
+                    p.PiezasPorPaquete
+                })
                 .ToListAsync();
 
             return Ok(productos);
         }
 
         // ============================================================
-        // PRODUCTOS DISPONIBLES PARA VENTA
+        // PRODUCTOS DISPONIBLES PARA VENTA (INVENTARIO)
         // ============================================================
         [HttpGet("disponibles")]
         public async Task<IActionResult> Disponibles()
@@ -196,9 +253,18 @@ namespace Gym_FitByte.Controllers
                 .Where(i => i.Cantidad > 0 && i.Producto!.Activo)
                 .Select(i => new
                 {
-                    i.ProductoId,
-                    i.Producto!.Nombre,
-                    i.Producto.Precio,
+                    ProductoId = i.ProductoId,
+                    Nombre = i.Producto!.Nombre,
+
+                    // Costo del paquete
+                    PrecioPaquete = i.Producto.Precio,
+
+                    // 🔹 Costo por pieza (si algún día lo quieres usar en el front)
+                    PrecioCostoUnitario = i.Producto.PrecioUnitario,
+
+                    // 🔥 Precio de venta por pieza (ESTE usará tu módulo de ventas)
+                    PrecioUnitario = i.Producto.PrecioFinal,
+
                     i.Producto.Categoria,
                     i.Producto.FotoUrl,
                     StockActual = i.Cantidad

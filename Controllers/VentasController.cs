@@ -33,7 +33,6 @@ namespace Gym_FitByte.Controllers
 
             try
             {
-                // Validar productos
                 var ids = dto.Items.Select(i => i.ProductoId).ToList();
 
                 var productos = await _context.Productos
@@ -43,7 +42,6 @@ namespace Gym_FitByte.Controllers
                 if (productos.Count != ids.Count)
                     return BadRequest("Uno o más productos no existen o están inactivos.");
 
-                // Verificar stock suficiente
                 foreach (var item in dto.Items)
                 {
                     var stock = await _inventarioService.ObtenerStockActual(item.ProductoId);
@@ -54,7 +52,6 @@ namespace Gym_FitByte.Controllers
                     }
                 }
 
-                // Crear venta
                 var venta = new Venta
                 {
                     Cliente = dto.Cliente,
@@ -66,19 +63,25 @@ namespace Gym_FitByte.Controllers
                 _context.Ventas.Add(venta);
                 await _context.SaveChangesAsync();
 
-                // Crear items
                 foreach (var item in dto.Items)
                 {
                     var prod = productos.First(p => p.Id == item.ProductoId);
-                    decimal precio = item.PrecioUnitario > 0 ? item.PrecioUnitario : prod.Precio;
-                    decimal subtotal = precio * item.Cantidad;
+
+                    // 🔥 PRECIO DE VENTA POR PIEZA
+                    // Si el front manda uno, se usa ese.
+                    // Si NO, se usa el PrecioFinal del producto.
+                    decimal precioVenta = item.PrecioUnitario > 0
+                        ? item.PrecioUnitario
+                        : prod.PrecioFinal;
+
+                    decimal subtotal = precioVenta * item.Cantidad;
 
                     venta.Items.Add(new VentaItem
                     {
                         VentaId = venta.Id,
                         ProductoId = prod.Id,
                         Cantidad = item.Cantidad,
-                        PrecioUnitario = precio,
+                        PrecioUnitario = precioVenta,
                         Subtotal = subtotal
                     });
                 }
@@ -87,7 +90,6 @@ namespace Gym_FitByte.Controllers
 
                 await _context.SaveChangesAsync();
 
-                // Descontar del inventario
                 await _inventarioService.ActualizarInventarioVenta(venta.Id);
 
                 await transaction.CommitAsync();
@@ -108,7 +110,7 @@ namespace Gym_FitByte.Controllers
         }
 
         // ============================================================
-        // LISTAR VENTAS
+        // LISTAR TODAS LAS VENTAS
         // ============================================================
         [HttpGet]
         public async Task<IActionResult> Listar()
@@ -128,10 +130,15 @@ namespace Gym_FitByte.Controllers
                     {
                         i.ProductoId,
                         Nombre = i.Producto!.Nombre,
-                        Foto = i.Producto.FotoUrl,
-                        i.Cantidad,
-                        i.PrecioUnitario,
-                        i.Subtotal
+                        Foto = i.Producto!.FotoUrl,
+                        Categoria = i.Producto!.Categoria,
+
+                        Cantidad = i.Cantidad,
+
+                        // ⭐ Este es el precio de venta (PrecioFinal)
+                        PrecioUnitario = i.PrecioUnitario,
+
+                        Subtotal = i.Subtotal
                     })
                 })
                 .ToListAsync();
@@ -140,7 +147,7 @@ namespace Gym_FitByte.Controllers
         }
 
         // ============================================================
-        // DETALLE DE VENTA
+        // DETALLE DE UNA VENTA POR ID
         // ============================================================
         [HttpGet("{id:int}")]
         public async Task<IActionResult> Detalle(int id)
@@ -165,9 +172,14 @@ namespace Gym_FitByte.Controllers
                     i.ProductoId,
                     Nombre = i.Producto!.Nombre,
                     Foto = i.Producto.FotoUrl,
-                    i.Cantidad,
-                    i.PrecioUnitario,
-                    i.Subtotal
+                    Categoria = i.Producto!.Categoria,
+
+                    Cantidad = i.Cantidad,
+
+                    // ⭐ Precio de venta por pieza
+                    PrecioUnitario = i.PrecioUnitario,
+
+                    Subtotal = i.Subtotal
                 })
             });
         }

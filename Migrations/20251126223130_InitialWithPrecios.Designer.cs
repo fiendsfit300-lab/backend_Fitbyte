@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Gym_FitByte.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20251125051054_Initial")]
-    partial class Initial
+    [Migration("20251126223130_InitialWithPrecios")]
+    partial class InitialWithPrecios
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -439,6 +439,12 @@ namespace Gym_FitByte.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("Precio")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("PrecioFinal")
+                        .HasColumnType("decimal(10,2)");
+
+                    b.Property<decimal>("PrecioUnitario")
                         .HasColumnType("decimal(10,2)");
 
                     b.Property<int>("ProveedorId")

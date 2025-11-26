@@ -21,7 +21,7 @@ namespace Gym_FitByte.Controllers
         }
 
         // ============================================================
-        // CREAR COMPRA
+        // 🔥 CREAR COMPRA (Actualizado con nueva estructura de precios)
         // ============================================================
         [HttpPost("crear")]
         public async Task<IActionResult> Crear([FromBody] CrearCompraDto dto)
@@ -29,12 +29,12 @@ namespace Gym_FitByte.Controllers
             if (dto == null || dto.Items == null || dto.Items.Count == 0)
                 return BadRequest("Debe incluir al menos un producto.");
 
-            // NO usar transaction aquí. El inventario service usa su propia transacción.
             try
             {
-                // Validar existencia de productos
+                // IDs de productos involucrados
                 var idsProductos = dto.Items.Select(i => i.ProductoId).Distinct().ToList();
 
+                // Validar productos
                 var productos = await _context.Productos
                     .Where(p => idsProductos.Contains(p.Id) && p.Activo)
                     .Include(p => p.Proveedor)
@@ -43,7 +43,7 @@ namespace Gym_FitByte.Controllers
                 if (productos.Count != idsProductos.Count)
                     return BadRequest("Uno o más productos no existen o están inactivos.");
 
-                // Crear compra
+                // Crear compra principal
                 var compra = new Compra
                 {
                     FechaCompra = dto.FechaCompra,
@@ -54,37 +54,53 @@ namespace Gym_FitByte.Controllers
                 _context.Compras.Add(compra);
                 await _context.SaveChangesAsync();
 
-                // Crear items
+                // Procesar items
                 foreach (var item in dto.Items)
                 {
                     var prod = productos.First(p => p.Id == item.ProductoId);
 
-                    var subtotal = item.Cantidad * item.PrecioUnitario;
+                    // ⚠️ En compras, el precio enviado por el front es el precio del PAQUETE
+                    var precioPaquete = item.PrecioUnitario;
 
+                    // Subtotal
+                    var subtotal = precioPaquete * item.Cantidad;
+
+                    // Registrar item
                     compra.Items.Add(new CompraItem
                     {
                         CompraId = compra.Id,
                         ProductoId = prod.Id,
                         Cantidad = item.Cantidad,
-                        PrecioUnitario = item.PrecioUnitario,
+                        PrecioUnitario = precioPaquete, // precio paquete
                         Subtotal = subtotal,
                         InventarioActualizado = false
                     });
+
+                    // ============================================================
+                    // 🔥 ACTUALIZAR SOLO COSTO del producto
+                    // - Precio (paquete)
+                    // - PrecioUnitario (pieza)
+                    // - NO tocamos PrecioFinal
+                    // ============================================================
+
+                    int piezas = prod.PiezasPorPaquete <= 0 ? 1 : prod.PiezasPorPaquete;
+
+                    prod.Precio = precioPaquete;                  // costo paquete
+                    prod.PrecioUnitario = precioPaquete / piezas; // costo por pieza
                 }
 
-                // Calcular TOTAL
                 compra.Total = compra.Items.Sum(i => i.Subtotal);
 
                 await _context.SaveChangesAsync();
 
-                // Actualizar inventario (usa su propia transacción interna)
+                // Actualizar inventario
                 await _inventarioService.ActualizarInventarioCompra(compra.Id);
 
                 return Ok(new
                 {
                     mensaje = "Compra registrada exitosamente.",
                     compra.Id,
-                    Total = compra.Total,
+                    compra.Total,
                     Items = compra.Items.Count
                 });
             }
@@ -95,7 +111,7 @@ namespace Gym_FitByte.Controllers
         }
 
         // ============================================================
-        // LISTAR COMPRAS
+        // 🔍 LISTAR TODAS LAS COMPRAS
         // ============================================================
         [HttpGet]
         public async Task<IActionResult> Listar()
@@ -114,17 +130,27 @@ namespace Gym_FitByte.Controllers
                 c.Folio,
                 c.Comentarios,
                 c.Total,
+
                 Items = c.Items.Select(i => new
                 {
                     i.ProductoId,
-                    Nombre = i.Producto!.Nombre,
-                    Categoria = i.Producto!.Categoria,
-                    Foto = i.Producto!.FotoUrl,
-                    i.Cantidad,
-                    Precio = i.PrecioUnitario,
+                    ProductoNombre = i.Producto!.Nombre,
+                    i.Producto.Categoria,
+                    Foto = i.Producto.FotoUrl,
+
+                    Cantidad = i.Cantidad,
+
+                    // precio del PAQUETE
+                    PrecioPaquete = i.PrecioUnitario,
+
+                    // costo por pieza
+                    PrecioUnitarioPieza = i.PrecioUnitario /
+                        (i.Producto.PiezasPorPaquete <= 0 ? 1 : i.Producto.PiezasPorPaquete),
+
                     i.Subtotal,
-                    ProveedorId = i.Producto!.ProveedorId,
-                    Proveedor = i.Producto!.Proveedor!.NombreEmpresa
+
+                    ProveedorId = i.Producto.ProveedorId,
+                    Proveedor = i.Producto.Proveedor!.NombreEmpresa
                 })
             });
 
@@ -132,7 +158,7 @@ namespace Gym_FitByte.Controllers
         }
 
         // ============================================================
-        // DETALLE COMPRA
+        // 🔍 DETALLE DE UNA COMPRA
         // ============================================================
         [HttpGet("{id:int}")]
         public async Task<IActionResult> Detalle(int id)
@@ -153,23 +179,30 @@ namespace Gym_FitByte.Controllers
                 compra.Folio,
                 compra.Comentarios,
                 compra.Total,
+
                 Items = compra.Items.Select(i => new
                 {
                     i.ProductoId,
-                    Nombre = i.Producto!.Nombre,
-                    Categoria = i.Producto!.Categoria,
-                    Foto = i.Producto!.FotoUrl,
-                    i.Cantidad,
-                    i.PrecioUnitario,
+                    ProductoNombre = i.Producto!.Nombre,
+                    i.Producto.Categoria,
+                    Foto = i.Producto.FotoUrl,
+
+                    Cantidad = i.Cantidad,
+
+                    PrecioPaquete = i.PrecioUnitario,
+                    PrecioUnitarioPieza = i.PrecioUnitario /
+                        (i.Producto.PiezasPorPaquete <= 0 ? 1 : i.Producto.PiezasPorPaquete),
+
                     i.Subtotal,
-                    ProveedorId = i.Producto!.ProveedorId,
-                    Proveedor = i.Producto!.Proveedor!.NombreEmpresa
+
+                    ProveedorId = i.Producto.ProveedorId,
+                    Proveedor = i.Producto.Proveedor!.NombreEmpresa
                 })
             });
         }
 
         // ============================================================
-        // LISTAR POR PROVEEDOR
+        // 🔍 LISTAR COMPRAS POR PROVEEDOR
         // ============================================================
         [HttpGet("por-proveedor/{proveedorId:int}")]
         public async Task<IActionResult> PorProveedor(int proveedorId)
@@ -188,16 +221,21 @@ namespace Gym_FitByte.Controllers
                 c.Folio,
                 c.Comentarios,
                 c.Total,
+
                 Items = c.Items
                     .Where(i => i.Producto!.ProveedorId == proveedorId)
                     .Select(i => new
                     {
                         i.ProductoId,
-                        Nombre = i.Producto!.Nombre,
-                        Categoria = i.Producto!.Categoria,
-                        Foto = i.Producto!.FotoUrl,
-                        i.Cantidad,
-                        i.PrecioUnitario,
+                        ProductoNombre = i.Producto!.Nombre,
+                        i.Producto.Categoria,
+                        Foto = i.Producto.FotoUrl,
+
+                        Cantidad = i.Cantidad,
+                        PrecioPaquete = i.PrecioUnitario,
+                        PrecioUnitarioPieza = i.PrecioUnitario /
+                            (i.Producto.PiezasPorPaquete <= 0 ? 1 : i.Producto.PiezasPorPaquete),
+
                         i.Subtotal,
                         ProveedorId = proveedorId
                     })

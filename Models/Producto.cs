@@ -13,8 +13,17 @@ namespace Gym_FitByte.Models
         [Required, MaxLength(150)]
         public string Nombre { get; set; } = string.Empty;
 
+        // 🔹 Precio del PAQUETE (costo proveedor)
         [Column(TypeName = "decimal(10,2)")]
         public decimal Precio { get; set; }
+
+        // 🔹 Costo por pieza (Precio / PiezasPorPaquete) — se calcula
+        [Column(TypeName = "decimal(10,2)")]
+        public decimal PrecioUnitario { get; set; }
+
+        // 🔥 Precio de VENTA final por pieza (con ganancia) — lo defines tú
+        [Column(TypeName = "decimal(10,2)")]
+        public decimal PrecioFinal { get; set; }
 
         [MaxLength(80)]
         public string Categoria { get; set; } = string.Empty;
@@ -23,8 +32,7 @@ namespace Gym_FitByte.Models
 
         public bool Activo { get; set; } = true;
 
-        // ❗ Antes llamado Stock — esto NO es inventario
-        // Es cuántas piezas trae cada paquete del proveedor
+        // Cuántas piezas trae cada paquete del proveedor
         public int PiezasPorPaquete { get; set; } = 1;
     }
 }
