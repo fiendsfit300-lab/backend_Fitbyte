@@ -36,6 +36,9 @@ namespace Gym_FitByte.Data
         public DbSet<VisitaHistorial> VisitasHistorial { get; set; }
 
         // ====== Inventario e Historial ======
+
+        public DbSet<CorteCaja> CortesCaja { get; set; }
+
         public DbSet<Inventario> Inventario { get; set; }
         public DbSet<HistorialMovimiento> HistorialMovimientos { get; set; }
 
