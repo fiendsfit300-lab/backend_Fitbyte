@@ -2,13 +2,11 @@ using Gym_FitByte.Data;
 using Gym_FitByte.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using System.Globalization;
 using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// ================================
-// CONFIGURACIÓN DE DB
-// ================================
 builder.Configuration.AddEnvironmentVariables();
 
 var connectionString =
@@ -19,9 +17,6 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 39)))
 );
 
-// ================================
-// SERVICIOS
-// ================================
 builder.Services.AddScoped<IInventarioService, InventarioService>();
 
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -30,9 +25,6 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.WriteIndented = true;
 });
 
-// ================================
-// CORS
-// ================================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("NuevaPolitica", policy =>
@@ -43,9 +35,6 @@ builder.Services.AddCors(options =>
     });
 });
 
-// ================================
-// SWAGGER
-// ================================
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -58,9 +47,6 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// ================================
-// MIDDLEWARES
-// ================================
 if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
@@ -68,14 +54,29 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 }
 
 app.UseRouting();
+
+ 
+app.Use(async (context, next) =>
+{
+    // Cultura general: español MX
+    var culturaMx = new CultureInfo("es-MX");
+    Thread.CurrentThread.CurrentCulture = culturaMx;
+    Thread.CurrentThread.CurrentUICulture = culturaMx;
+
+    // Zona horaria: México (GMT-6)
+    TimeZoneInfo tz = TimeZoneInfo.FindSystemTimeZoneById("Central Standard Time");
+    context.Items["AhoraMx"] = TimeZoneInfo.ConvertTime(DateTime.UtcNow, tz);
+
+    await next();
+});
+ 
+
 app.UseCors("NuevaPolitica");
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
-// ================================
-// APLICAR MIGRACIONES AUTOMÁTICAS (OPCIONAL PERO ÚTIL)
-// ================================
+// AUTOMIGRACIÓN
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
