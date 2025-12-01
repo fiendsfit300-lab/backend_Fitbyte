@@ -9,22 +9,23 @@ namespace Gym_FitByte.Controllers
     public class DashboardController : ControllerBase
     {
         private readonly AppDbContext _context;
-        public DashboardController (AppDbContext context) => _context = context;
+        public DashboardController(AppDbContext context) => _context = context;
 
-      
+        // ============================================================
+        // 🔥 RESUMEN GENERAL – CON RENOVACIONES
+        // ============================================================
         [HttpGet("resumen-general")]
         public async Task<IActionResult> ResumenGeneral()
         {
             var hoy = DateTime.Today;
             var inicioMes = new DateTime(hoy.Year, hoy.Month, 1);
 
-        
+            // ---- Membresías ----
             var totalMembresias = await _context.Membresias.CountAsync();
             var activas = await _context.Membresias.CountAsync(m => m.Activa && m.FechaVencimiento >= hoy);
             var vencidas = await _context.Membresias.CountAsync(m => m.FechaVencimiento < hoy);
             var nuevasMes = await _context.Membresias.CountAsync(m => m.FechaRegistro >= inicioMes);
 
-           
             var porVencer = await _context.Membresias
                 .CountAsync(m =>
                     m.Activa &&
@@ -32,14 +33,15 @@ namespace Gym_FitByte.Controllers
                     m.FechaVencimiento <= hoy.AddDays(3)
                 );
 
-        
+            // ---- Asistencias ----
             var asistenciasHoy = await _context.Asistencias
                 .CountAsync(a => a.FechaHora.Date == hoy);
 
-        
+            // ---- Visitas ----
             var visitasHoy = await _context.VisitasDiarias
                 .CountAsync(v => v.FechaHoraIngreso.Date == hoy && v.Estado != Models.EstadoVisita.Cancelada);
- 
+
+            // ---- Ventas Productos ----
             var ventasHoy = await _context.Ventas
                 .Where(v => v.FechaVenta.Date == hoy)
                 .SumAsync(v => v.Total);
@@ -47,7 +49,8 @@ namespace Gym_FitByte.Controllers
             var ventasMes = await _context.Ventas
                 .Where(v => v.FechaVenta >= inicioMes)
                 .SumAsync(v => v.Total);
- 
+
+            // ---- Ventas Visitas ----
             var ventasVisitasHoy = await _context.VentasVisitas
                 .Where(v => v.FechaVenta.Date == hoy)
                 .SumAsync(v => v.Costo);
@@ -55,7 +58,19 @@ namespace Gym_FitByte.Controllers
             var ventasVisitasMes = await _context.VentasVisitas
                 .Where(v => v.FechaVenta >= inicioMes)
                 .SumAsync(v => v.Costo);
- 
+
+            // ============================================================
+            // 🔥 RENOVACIONES – INGRESOS TAMBIÉN
+            // ============================================================
+            var renovacionesHoy = await _context.MovimientosCaja
+                .Where(m => m.Tipo == "Renovación" && m.Fecha.Date == hoy)
+                .SumAsync(m => m.Monto);
+
+            var renovacionesMes = await _context.MovimientosCaja
+                .Where(m => m.Tipo == "Renovación" && m.Fecha >= inicioMes)
+                .SumAsync(m => m.Monto);
+
+            // ---- Compras ----
             var comprasHoy = await _context.Compras
                 .Where(c => c.FechaCompra.Date == hoy)
                 .SumAsync(c => c.Total);
@@ -64,7 +79,7 @@ namespace Gym_FitByte.Controllers
                 .Where(c => c.FechaCompra >= inicioMes)
                 .SumAsync(c => c.Total);
 
-       
+            // ---- Inventario ----
             var stockBajo = await _context.Inventario
                 .Include(i => i.Producto)
                 .CountAsync(i => i.Cantidad <= 5 && i.Producto!.Activo);
@@ -74,10 +89,10 @@ namespace Gym_FitByte.Controllers
                 .Where(i => i.Producto!.Activo)
                 .SumAsync(i => i.Cantidad * i.Producto.PrecioFinal);
 
-         
+            // ---- Pre-registros ----
             var preregPendientes = await _context.PreRegistros
                 .CountAsync(p => p.Estado == Models.EstadoPreRegistro.Pendiente);
- 
+
             return Ok(new
             {
                 miembros = new
@@ -104,7 +119,11 @@ namespace Gym_FitByte.Controllers
                     productosHoy = ventasHoy,
                     productosMes = ventasMes,
                     visitasHoy = ventasVisitasHoy,
-                    visitasMes = ventasVisitasMes
+                    visitasMes = ventasVisitasMes,
+
+                    // 🔥 AGREGADO:
+                    renovacionesHoy,
+                    renovacionesMes
                 },
 
                 compras = new
@@ -126,7 +145,9 @@ namespace Gym_FitByte.Controllers
             });
         }
 
-  
+        // ============================================================
+        // 🔥 INGRESOS MENSUALES – CON RENOVACIONES
+        // ============================================================
         [HttpGet("ingresos-mensuales")]
         public async Task<IActionResult> IngresosMensuales()
         {
@@ -144,11 +165,26 @@ namespace Gym_FitByte.Controllers
                 .Select(g => new { mes = g.Key, total = g.Sum(x => x.Costo) })
                 .ToListAsync();
 
-            return Ok(new { ventasProductos, visitas });
+            // ============================================================
+            // 🔥 RENOVACIONES – SE INCLUYEN EN LA GRÁFICA
+            // ============================================================
+            var renovaciones = await _context.MovimientosCaja
+                .Where(m => m.Tipo == "Renovación" && m.Fecha.Year == year)
+                .GroupBy(m => m.Fecha.Month)
+                .Select(g => new { mes = g.Key, total = g.Sum(x => x.Monto) })
+                .ToListAsync();
+
+            return Ok(new
+            {
+                ventasProductos,
+                visitas,
+                renovaciones
+            });
         }
 
-  
-      
+        // ============================================================
+        // ASISTENCIAS 7 DÍAS
+        // ============================================================
         [HttpGet("asistencias-semana")]
         public async Task<IActionResult> AsistenciasSemana()
         {
@@ -162,7 +198,10 @@ namespace Gym_FitByte.Controllers
 
             return Ok(datos);
         }
- 
+
+        // ============================================================
+        // TOP 5 PRODUCTOS
+        // ============================================================
         [HttpGet("top-productos")]
         public async Task<IActionResult> TopProductos()
         {
@@ -181,9 +220,10 @@ namespace Gym_FitByte.Controllers
 
             return Ok(datos);
         }
-        
 
-      
+        // ============================================================
+        // MEMBRESÍAS POR VENCER
+        // ============================================================
         [HttpGet("membresias-por-vencer")]
         public async Task<IActionResult> MembresiasPorVencer()
         {
