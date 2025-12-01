@@ -7,6 +7,9 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ================================
+// CONFIGURACIÓN DE DB
+// ================================
 builder.Configuration.AddEnvironmentVariables();
 
 var connectionString =
@@ -17,6 +20,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 39)))
 );
 
+// ================================
+// SERVICIOS
+// ================================
 builder.Services.AddScoped<IInventarioService, InventarioService>();
 
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -25,6 +31,9 @@ builder.Services.AddControllers().AddJsonOptions(options =>
     options.JsonSerializerOptions.WriteIndented = true;
 });
 
+// ================================
+// CORS
+// ================================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("NuevaPolitica", policy =>
@@ -35,6 +44,9 @@ builder.Services.AddCors(options =>
     });
 });
 
+// ================================
+// SWAGGER
+// ================================
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -47,6 +59,9 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// ================================
+// SWAGGER
+// ================================
 if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 {
     app.UseSwagger();
@@ -55,7 +70,9 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
 
 app.UseRouting();
 
- 
+// ================================
+// CULTURA Y ZONA HORARIA MX (LINUX + WINDOWS)
+// ================================
 app.Use(async (context, next) =>
 {
     // Cultura general: español MX
@@ -63,20 +80,36 @@ app.Use(async (context, next) =>
     Thread.CurrentThread.CurrentCulture = culturaMx;
     Thread.CurrentThread.CurrentUICulture = culturaMx;
 
-    // Zona horaria: México (GMT-6)
-    TimeZoneInfo tz = TimeZoneInfo.FindSystemTimeZoneById("Central Standard Time");
+    // Zona horaria compatible con Linux (Render)
+    TimeZoneInfo tz;
+
+    try
+    {
+        // Linux – Render
+        tz = TimeZoneInfo.FindSystemTimeZoneById("America/Mexico_City");
+    }
+    catch
+    {
+        // Windows – Desarrollo local
+        tz = TimeZoneInfo.FindSystemTimeZoneById("Central Standard Time");
+    }
+
     context.Items["AhoraMx"] = TimeZoneInfo.ConvertTime(DateTime.UtcNow, tz);
 
     await next();
 });
- 
 
+// ================================
+// MIDDLEWARES
+// ================================
 app.UseCors("NuevaPolitica");
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 
-// AUTOMIGRACIÓN
+// ================================
+// MIGRACIONES AUTOMÁTICAS
+// ================================
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -91,4 +124,5 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// ================================
 app.Run();
