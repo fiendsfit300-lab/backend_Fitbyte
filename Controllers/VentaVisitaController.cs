@@ -16,7 +16,32 @@ namespace Gym_FitByte.Controllers
             _context = context;
         }
 
+        // ============================================================
+        // 🔥 FUNCIÓN: REGISTRAR MOVIMIENTO EN CORTE
+        // ============================================================
+        private async Task RegistrarMovimiento(string tipo, decimal monto, string descripcion)
+        {
+            var corte = await _context.CortesCaja.FirstOrDefaultAsync(c => c.Estado == 0);
 
+            if (corte == null)
+                return;
+
+            var mov = new MovimientoCaja
+            {
+                CorteCajaId = corte.Id,
+                Tipo = tipo,
+                Monto = monto,
+                Descripcion = descripcion,
+                Fecha = DateTime.Now
+            };
+
+            _context.MovimientosCaja.Add(mov);
+            await _context.SaveChangesAsync();
+        }
+
+        // ============================================================
+        // 🔥 REGISTRAR UNA VENTA DE VISITA
+        // ============================================================
         [HttpPost("registrar")]
         public async Task<IActionResult> RegistrarVenta([FromBody] VentaVisita visita)
         {
@@ -29,6 +54,9 @@ namespace Gym_FitByte.Controllers
             _context.VentasVisitas.Add(visita);
             await _context.SaveChangesAsync();
 
+            // 🔥 REGISTRAR MOVIMIENTO EN CORTE
+            await RegistrarMovimiento("Visita", visita.Costo, $"Venta de visita #{visita.Id}");
+
             return Ok(new
             {
                 mensaje = "Venta de visita registrada correctamente.",
@@ -39,7 +67,9 @@ namespace Gym_FitByte.Controllers
             });
         }
 
-
+        // ============================================================
+        // 🔍 OBTENER TODAS LAS VISITAS
+        // ============================================================
         [HttpGet]
         public async Task<IActionResult> ObtenerVentas()
         {
@@ -50,22 +80,28 @@ namespace Gym_FitByte.Controllers
             return Ok(ventas);
         }
 
-
+        // ============================================================
+        // 🔍 OBTENER VISITA POR ID
+        // ============================================================
         [HttpGet("{id}")]
         public async Task<IActionResult> ObtenerVentaPorId(int id)
         {
             var venta = await _context.VentasVisitas.FindAsync(id);
+
             if (venta == null)
                 return NotFound("Venta no encontrada.");
 
             return Ok(venta);
         }
 
-
+        // ============================================================
+        // 🔍 VISITAS DE HOY
+        // ============================================================
         [HttpGet("hoy")]
         public async Task<IActionResult> VentasDeHoy()
         {
             var hoy = DateTime.Today;
+
             var ventas = await _context.VentasVisitas
                 .Where(v => v.FechaVenta.Date == hoy)
                 .ToListAsync();
@@ -77,11 +113,14 @@ namespace Gym_FitByte.Controllers
             });
         }
 
-
+        // ============================================================
+        // 🔍 VISITAS DE AYER
+        // ============================================================
         [HttpGet("ayer")]
         public async Task<IActionResult> VentasDeAyer()
         {
             var ayer = DateTime.Today.AddDays(-1);
+
             var ventas = await _context.VentasVisitas
                 .Where(v => v.FechaVenta.Date == ayer)
                 .ToListAsync();
@@ -93,7 +132,9 @@ namespace Gym_FitByte.Controllers
             });
         }
 
-
+        // ============================================================
+        // 🔍 VISITAS DE LA SEMANA
+        // ============================================================
         [HttpGet("semana")]
         public async Task<IActionResult> VentasDeSemana()
         {
@@ -112,11 +153,14 @@ namespace Gym_FitByte.Controllers
             });
         }
 
-
+        // ============================================================
+        // 🔍 VISITAS DEL MES
+        // ============================================================
         [HttpGet("mes")]
         public async Task<IActionResult> VentasDeMes()
         {
             var hoy = DateTime.Today;
+
             var primerDia = new DateTime(hoy.Year, hoy.Month, 1);
             var ultimoDia = primerDia.AddMonths(1).AddDays(-1);
 

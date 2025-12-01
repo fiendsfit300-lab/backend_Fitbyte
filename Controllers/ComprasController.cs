@@ -21,7 +21,30 @@ namespace Gym_FitByte.Controllers
         }
 
         // ============================================================
-        // 🔥 CREAR COMPRA (Actualizado con nueva estructura de precios)
+        // 🔥 FUNCIÓN: REGISTRAR MOVIMIENTO EN CORTE DE CAJA
+        // ============================================================
+        private async Task RegistrarMovimiento(string tipo, decimal monto, string descripcion)
+        {
+            var corte = await _context.CortesCaja.FirstOrDefaultAsync(c => c.Estado == 0);
+
+            if (corte == null)
+                return; // No hay corte abierto → no registra nada
+
+            var mov = new MovimientoCaja
+            {
+                CorteCajaId = corte.Id,
+                Tipo = tipo,
+                Monto = monto,            // En compras es NEGATIVO
+                Descripcion = descripcion,
+                Fecha = DateTime.Now
+            };
+
+            _context.MovimientosCaja.Add(mov);
+            await _context.SaveChangesAsync();
+        }
+
+        // ============================================================
+        // 🔥 CREAR COMPRA
         // ============================================================
         [HttpPost("crear")]
         public async Task<IActionResult> Crear([FromBody] CrearCompraDto dto)
@@ -31,7 +54,7 @@ namespace Gym_FitByte.Controllers
 
             try
             {
-                // IDs de productos involucrados
+                // IDs de productos
                 var idsProductos = dto.Items.Select(i => i.ProductoId).Distinct().ToList();
 
                 // Validar productos
@@ -43,7 +66,7 @@ namespace Gym_FitByte.Controllers
                 if (productos.Count != idsProductos.Count)
                     return BadRequest("Uno o más productos no existen o están inactivos.");
 
-                // Crear compra principal
+                // Crear compra
                 var compra = new Compra
                 {
                     FechaCompra = dto.FechaCompra,
@@ -54,18 +77,14 @@ namespace Gym_FitByte.Controllers
                 _context.Compras.Add(compra);
                 await _context.SaveChangesAsync();
 
-                // Procesar items
+                // Registrar items
                 foreach (var item in dto.Items)
                 {
                     var prod = productos.First(p => p.Id == item.ProductoId);
 
-                    // ⚠️ En compras, el precio enviado por el front es el precio del PAQUETE
-                    var precioPaquete = item.PrecioUnitario;
-
-                    // Subtotal
+                    var precioPaquete = item.PrecioUnitario; // Precio del paquete
                     var subtotal = precioPaquete * item.Cantidad;
 
-                    // Registrar item
                     compra.Items.Add(new CompraItem
                     {
                         CompraId = compra.Id,
@@ -76,13 +95,7 @@ namespace Gym_FitByte.Controllers
                         InventarioActualizado = false
                     });
 
-                    // ============================================================
-                    // 🔥 ACTUALIZAR SOLO COSTO del producto
-                    // - Precio (paquete)
-                    // - PrecioUnitario (pieza)
-                    // - NO tocamos PrecioFinal
-                    // ============================================================
-
+                    // ⚠️ Actualizar costo por paquete y por pieza
                     int piezas = prod.PiezasPorPaquete <= 0 ? 1 : prod.PiezasPorPaquete;
 
                     prod.Precio = precioPaquete;                  // costo paquete
@@ -95,6 +108,13 @@ namespace Gym_FitByte.Controllers
 
                 // Actualizar inventario
                 await _inventarioService.ActualizarInventarioCompra(compra.Id);
+
+                // 🔥 REGISTRAR MOVIMIENTO (EGRESO NEGATIVO)
+                await RegistrarMovimiento(
+                    "Compra",
+                    -compra.Total,
+                    $"Compra #{compra.Id}"
+                );
 
                 return Ok(new
                 {
@@ -140,12 +160,11 @@ namespace Gym_FitByte.Controllers
 
                     Cantidad = i.Cantidad,
 
-                    // precio del PAQUETE
                     PrecioPaquete = i.PrecioUnitario,
-
-                    // costo por pieza
-                    PrecioUnitarioPieza = i.PrecioUnitario /
-                        (i.Producto.PiezasPorPaquete <= 0 ? 1 : i.Producto.PiezasPorPaquete),
+                    PrecioUnitarioPieza =
+                        i.Producto.PiezasPorPaquete <= 0
+                        ? i.PrecioUnitario
+                        : i.PrecioUnitario / i.Producto.PiezasPorPaquete,
 
                     i.Subtotal,
 
@@ -190,8 +209,10 @@ namespace Gym_FitByte.Controllers
                     Cantidad = i.Cantidad,
 
                     PrecioPaquete = i.PrecioUnitario,
-                    PrecioUnitarioPieza = i.PrecioUnitario /
-                        (i.Producto.PiezasPorPaquete <= 0 ? 1 : i.Producto.PiezasPorPaquete),
+                    PrecioUnitarioPieza =
+                        i.Producto.PiezasPorPaquete <= 0
+                        ? i.PrecioUnitario
+                        : i.PrecioUnitario / i.Producto.PiezasPorPaquete,
 
                     i.Subtotal,
 
@@ -232,9 +253,12 @@ namespace Gym_FitByte.Controllers
                         Foto = i.Producto.FotoUrl,
 
                         Cantidad = i.Cantidad,
+
                         PrecioPaquete = i.PrecioUnitario,
-                        PrecioUnitarioPieza = i.PrecioUnitario /
-                            (i.Producto.PiezasPorPaquete <= 0 ? 1 : i.Producto.PiezasPorPaquete),
+                        PrecioUnitarioPieza =
+                            i.Producto.PiezasPorPaquete <= 0
+                            ? i.PrecioUnitario
+                            : i.PrecioUnitario / i.Producto.PiezasPorPaquete,
 
                         i.Subtotal,
                         ProveedorId = proveedorId

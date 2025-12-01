@@ -21,10 +21,37 @@ namespace Gym_FitByte.Controllers
             _context = context;
             _config = config;
         }
+
+        // ============================================================
+        // 🔥 FUNCIÓN: REGISTRAR MOVIMIENTO EN CORTE DE CAJA
+        // ============================================================
+        private async Task RegistrarMovimiento(string tipo, decimal monto, string descripcion)
+        {
+            var corte = await _context.CortesCaja.FirstOrDefaultAsync(c => c.Estado == 0);
+
+            if (corte == null)
+                return; // No hay corte abierto
+
+            var mov = new MovimientoCaja
+            {
+                CorteCajaId = corte.Id,
+                Tipo = tipo,
+                Monto = monto,
+                Descripcion = descripcion,
+                Fecha = DateTime.Now
+            };
+
+            _context.MovimientosCaja.Add(mov);
+            await _context.SaveChangesAsync();
+        }
+
+        // ============================================================
+        // 🔥 REGISTRAR NUEVA MEMBRESÍA
+        // ============================================================
         [HttpPost("registrar")]
         public async Task<IActionResult> RegistrarMembresia([FromForm] CrearMembresiaDto dto)
         {
-            // FOTO OPCIONAL — si no envían foto NO generará error
+            // Cargar foto (si existe)
             string urlFoto;
 
             if (dto.Foto != null && dto.Foto.Length > 0)
@@ -36,8 +63,10 @@ namespace Gym_FitByte.Controllers
                 urlFoto = "https://placehold.co/300x300?text=Sin+Foto";
             }
 
+            // Generar código único
             string codigo = await GenerarCodigoUnicoAsync();
 
+            // Crear membresía
             var m = new Membresia
             {
                 CodigoCliente = codigo,
@@ -61,6 +90,10 @@ namespace Gym_FitByte.Controllers
             _context.Membresias.Add(m);
             await _context.SaveChangesAsync();
 
+            // 🔥 REGISTRAR MOVIMIENTO EN CORTE (INSCRIPCIÓN)
+            await RegistrarMovimiento("Membresía", m.MontoPagado,
+                $"Nueva membresía #{m.Id} — {m.Nombre}");
+
             return Ok(new
             {
                 mensaje = "Membresía registrada correctamente.",
@@ -70,18 +103,20 @@ namespace Gym_FitByte.Controllers
             });
         }
 
-
-
+        // ============================================================
+        // 🔥 RENOVAR MEMBRESÍA
+        // ============================================================
         [HttpPut("renovar/{id:int}")]
         public async Task<IActionResult> RenovarMembresia(int id, [FromBody] RenovarMembresiaDto dto)
         {
             var m = await _context.Membresias.FirstOrDefaultAsync(x => x.Id == id);
-            if (m == null) return NotFound("Membresía no encontrada.");
+            if (m == null)
+                return NotFound("Membresía no encontrada.");
 
             if (dto.NuevaFechaVencimiento <= DateTime.UtcNow.Date)
-                return BadRequest("La nueva fecha de vencimiento debe ser posterior a hoy.");
+                return BadRequest("La nueva fecha debe ser mayor a hoy.");
 
-         
+            // Registrar historial de renovación
             var historial = new MembresiaHistorial
             {
                 MembresiaId = m.Id,
@@ -95,7 +130,7 @@ namespace Gym_FitByte.Controllers
 
             _context.MembresiasHistorial.Add(historial);
 
-          
+            // Actualizar datos
             m.FechaVencimiento = dto.NuevaFechaVencimiento;
             m.FormaPago = dto.TipoPago;
             m.MontoPagado = dto.MontoPagado;
@@ -103,6 +138,10 @@ namespace Gym_FitByte.Controllers
 
             _context.Membresias.Update(m);
             await _context.SaveChangesAsync();
+
+            // 🔥 REGISTRAR MOVIMIENTO DE CORTE (RENOVACIÓN)
+            await RegistrarMovimiento("Renovación", dto.MontoPagado,
+                $"Renovación #{m.Id} — {m.Nombre}");
 
             return Ok(new
             {
@@ -114,6 +153,9 @@ namespace Gym_FitByte.Controllers
             });
         }
 
+        // ============================================================
+        // 🔧 EDITAR MEMBRESÍA
+        // ============================================================
         [HttpPut("editar/{id:int}")]
         public async Task<IActionResult> EditarMembresia(int id, [FromForm] EditarMembresiaDto dto)
         {
@@ -121,13 +163,9 @@ namespace Gym_FitByte.Controllers
             if (m == null)
                 return NotFound("Membresía no encontrada.");
 
-            // SI SE ENVÍA FOTO → SUBIR Y REEMPLAZAR
             if (dto.Foto != null && dto.Foto.Length > 0)
-            {
                 m.FotoUrl = await SubirFotoABlob(dto.Foto);
-            }
 
-            // ACTUALIZAR CAMPOS
             m.Nombre = dto.Nombre;
             m.Edad = dto.Edad;
             m.Telefono = dto.Telefono;
@@ -141,7 +179,6 @@ namespace Gym_FitByte.Controllers
             m.Tipo = dto.Tipo;
             m.Nivel = dto.Nivel;
             m.MontoPagado = dto.MontoPagado;
-
             m.FechaVencimiento = dto.FechaVencimiento;
 
             _context.Membresias.Update(m);
@@ -156,7 +193,9 @@ namespace Gym_FitByte.Controllers
             });
         }
 
-
+        // ============================================================
+        // OBTENER POR VENCER
+        // ============================================================
         [HttpGet("por-vencer")]
         public async Task<IActionResult> ObtenerPorVencer()
         {
@@ -172,9 +211,9 @@ namespace Gym_FitByte.Controllers
             return Ok(porVencer);
         }
 
-
-
-
+        // ============================================================
+        // OBTENER POR CÓDIGO
+        // ============================================================
         [HttpGet("codigo/{codigo}")]
         public async Task<IActionResult> ObtenerPorCodigo(string codigo)
         {
@@ -187,7 +226,9 @@ namespace Gym_FitByte.Controllers
             return Ok(m);
         }
 
-        
+        // ============================================================
+        // HISTORIAL DE PAGOS
+        // ============================================================
         [HttpGet("historial/{codigo}")]
         public async Task<IActionResult> ObtenerHistorial(string codigo)
         {
@@ -199,7 +240,9 @@ namespace Gym_FitByte.Controllers
             return Ok(data);
         }
 
-        
+        // ============================================================
+        // OBTENER TODAS
+        // ============================================================
         [HttpGet]
         public async Task<IActionResult> ObtenerTodas()
         {
@@ -210,8 +253,9 @@ namespace Gym_FitByte.Controllers
             return Ok(membresias);
         }
 
-     
-
+        // ============================================================
+        // 🔧 SUBIR FOTO AL BLOB
+        // ============================================================
         private async Task<string> SubirFotoABlob(IFormFile archivo)
         {
             var connectionString = _config.GetConnectionString("AzureBlobStorage");
@@ -230,6 +274,9 @@ namespace Gym_FitByte.Controllers
             return blobClient.Uri.ToString();
         }
 
+        // ============================================================
+        // GENERAR CÓDIGO ÚNICO
+        // ============================================================
         private async Task<string> GenerarCodigoUnicoAsync()
         {
             string codigo;
@@ -238,35 +285,10 @@ namespace Gym_FitByte.Controllers
             do
             {
                 codigo = random.Next(100000, 999999).ToString();
-            } while (await _context.Membresias.AnyAsync(m => m.CodigoCliente == codigo));
+            }
+            while (await _context.Membresias.AnyAsync(m => m.CodigoCliente == codigo));
 
             return codigo;
         }
-    }
-
-   
-    public class CrearMembresiaDto
-    {
-        public string Nombre { get; set; } = string.Empty;
-        public int Edad { get; set; }
-        public string Telefono { get; set; } = string.Empty;
-        public string Direccion { get; set; } = string.Empty;
-        public string Correo { get; set; } = string.Empty;
-        public string Rutina { get; set; } = string.Empty;
-        public string EnfermedadesOLesiones { get; set; } = "Ninguna";
-        public IFormFile Foto { get; set; } = default!;
-        public DateTime FechaRegistro { get; set; } = DateTime.Now;
-        public DateTime FechaVencimiento { get; set; }
-        public string FormaPago { get; set; } = "Efectivo";
-        public string Tipo { get; set; } = "Inscripción";
-        public decimal MontoPagado { get; set; }
-        public string Nivel { get; set; } = "Básica";
-    }
-
-    public class RenovarMembresiaDto
-    {
-        public DateTime NuevaFechaVencimiento { get; set; }
-        public string TipoPago { get; set; } = "Efectivo";
-        public decimal MontoPagado { get; set; }
     }
 }
