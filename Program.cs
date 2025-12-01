@@ -25,10 +25,17 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // ================================
 builder.Services.AddScoped<IInventarioService, InventarioService>();
 
+// ================================
+// CONTROLADORES + CONFIG JSON
+// ================================
 builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
     options.JsonSerializerOptions.WriteIndented = true;
+
+    // 🔥 ESTA LÍNEA ES CRÍTICA PARA QUE EL BACKEND ACEPTE minúsculas/mayúsculas
+    // Y EVITE QUE LLEGUEN VALORES COMO 0 EN DTOs
+    options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
 });
 
 // ================================
@@ -68,29 +75,32 @@ if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
     app.UseSwaggerUI();
 }
 
+// ================================
+// RUTEO
+// ================================
 app.UseRouting();
 
 // ================================
-// CULTURA Y ZONA HORARIA MX (LINUX + WINDOWS)
+// CULTURA Y ZONA HORARIA MX
 // ================================
 app.Use(async (context, next) =>
 {
-    // Cultura general: español MX
+    // Cultura general MX
     var culturaMx = new CultureInfo("es-MX");
     Thread.CurrentThread.CurrentCulture = culturaMx;
     Thread.CurrentThread.CurrentUICulture = culturaMx;
 
-    // Zona horaria compatible con Linux (Render)
+    // Zona horaria (Linux + Windows)
     TimeZoneInfo tz;
 
     try
     {
-        // Linux – Render
+        // Linux - Render
         tz = TimeZoneInfo.FindSystemTimeZoneById("America/Mexico_City");
     }
     catch
     {
-        // Windows – Desarrollo local
+        // Windows - Desarrollo
         tz = TimeZoneInfo.FindSystemTimeZoneById("Central Standard Time");
     }
 
