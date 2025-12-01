@@ -36,8 +36,9 @@ namespace Gym_FitByte.Data
         public DbSet<VisitaHistorial> VisitasHistorial { get; set; }
 
         // ====== Inventario e Historial ======
-
         public DbSet<CorteCaja> CortesCaja { get; set; }
+        public DbSet<MovimientoCaja> MovimientosCaja { get; set; }
+    
 
         public DbSet<Inventario> Inventario { get; set; }
         public DbSet<HistorialMovimiento> HistorialMovimientos { get; set; }
@@ -149,7 +150,12 @@ namespace Gym_FitByte.Data
                 .WithMany()
                 .HasForeignKey(h => h.ProductoId)
                 .OnDelete(DeleteBehavior.Restrict);
-
+            // RELACIÓN CorteCaja -> Movimientos
+            modelBuilder.Entity<MovimientoCaja>()
+                .HasOne(m => m.CorteCaja)
+                .WithMany(c => c.Movimientos)
+                .HasForeignKey(m => m.CorteCajaId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             // ========================================
             //             RUTINAS NUEVO

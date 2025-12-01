@@ -17,188 +17,129 @@ namespace Gym_FitByte.Controllers
         }
 
         // ============================================================
-        // 1. CORTE DE CAJA (PREVISUALIZACIÓN DEL PERIODO)
-        //    Usa el último corte del día como inicio del periodo
+        // 1. ABRIR CORTE DE CAJA
         // ============================================================
-        [HttpGet("diario")]
-        public async Task<IActionResult> CorteDiario([FromQuery] decimal cajaInicial = 0)
+        [HttpPost("abrir")]
+        public async Task<IActionResult> Abrir([FromBody] decimal montoInicial)
         {
-            var hoy = DateTime.Today;
-            var ahora = DateTime.Now;
+            // verificar si ya hay un corte abierto
+            var abierto = await _context.CortesCaja
+                .FirstOrDefaultAsync(c => c.Estado == 0);
 
-            // 1) Buscar el último corte registrado HOY
-            var ultimoCorte = await _context.CortesCaja
-                .Where(c => c.Fecha.Date == hoy)
-                .OrderByDescending(c => c.Fecha)
-                .FirstOrDefaultAsync();
-
-            DateTime inicioPeriodo;
-            decimal cajaInicialReal;
-
-            if (ultimoCorte == null)
+            if (abierto != null)
             {
-                // PRIMER CORTE DEL DÍA
-                inicioPeriodo = hoy; // 00:00
-                cajaInicialReal = cajaInicial;   // lo que pone el usuario
-            }
-            else
-            {
-                // CORTES POSTERIORES
-                inicioPeriodo = ultimoCorte.Fecha;    // desde el último corte
-                cajaInicialReal = ultimoCorte.CajaFinal; // caja arranca con lo que quedó
+                return BadRequest(new { mensaje = "Ya hay un corte abierto" });
             }
 
-            // ===================================
-            // INGRESOS (SOLO DEL PERIODO)
-            // ===================================
-
-            // Ventas de productos
-            var ventasProductos = await _context.Ventas
-                .Where(v => v.FechaVenta >= inicioPeriodo && v.FechaVenta <= ahora)
-                .SumAsync(v => v.Total);
-
-            var cantidadVentasProductos = await _context.Ventas
-                .CountAsync(v => v.FechaVenta >= inicioPeriodo && v.FechaVenta <= ahora);
-
-            // Ventas de visitas
-            var ventasVisitas = await _context.VentasVisitas
-                .Where(v => v.FechaVenta >= inicioPeriodo && v.FechaVenta <= ahora)
-                .SumAsync(v => v.Costo);
-
-            var cantidadVentasVisitas = await _context.VentasVisitas
-                .CountAsync(v => v.FechaVenta >= inicioPeriodo && v.FechaVenta <= ahora);
-
-            // Membresías nuevas (FechaRegistro)
-            var ingresosMembresiasNuevas = await _context.Membresias
-                .Where(m => m.FechaRegistro >= inicioPeriodo && m.FechaRegistro <= ahora)
-                .SumAsync(m => m.MontoPagado);
-
-            var cantidadMembresiasNuevas = await _context.Membresias
-                .CountAsync(m => m.FechaRegistro >= inicioPeriodo && m.FechaRegistro <= ahora);
-
-            // Renovaciones (FechaVencimiento en el periodo)
-            var ingresosRenovaciones = await _context.Membresias
-                .Where(m => m.FechaVencimiento >= inicioPeriodo && m.FechaVencimiento <= ahora)
-                .SumAsync(m => m.MontoPagado);
-
-            var cantidadRenovaciones = await _context.Membresias
-                .CountAsync(m => m.FechaVencimiento >= inicioPeriodo && m.FechaVencimiento <= ahora);
-
-            // ===================================
-            // EGRESOS (SOLO DEL PERIODO)
-            // ===================================
-            var comprasHoy = await _context.Compras
-                .Where(c => c.FechaCompra >= inicioPeriodo && c.FechaCompra <= ahora)
-                .SumAsync(c => c.Total);
-
-            // ===================================
-            // TOTALES
-            // ===================================
-            var ingresosTotales =
-                ventasProductos +
-                ventasVisitas +
-                ingresosMembresiasNuevas +
-                ingresosRenovaciones;
-
-            var egresosTotales = comprasHoy;
-
-            var cajaFinal = cajaInicialReal + ingresosTotales - egresosTotales;
-            var ganancia = ingresosTotales - egresosTotales;
-
-            return Ok(new
+            var corte = new CorteCaja
             {
-                fecha = ahora,
-                inicioPeriodo,
-                cajaInicial = cajaInicialReal,
+                FechaApertura = DateTime.Now,
+                MontoInicial = montoInicial,
+                Estado = 0
+            };
 
-                ingresos = new
-                {
-                    ventasProductos,
-                    cantidadVentasProductos,
-                    ventasVisitas,
-                    cantidadVentasVisitas,
-                    ingresosMembresiasNuevas,
-                    cantidadMembresiasNuevas,
-                    ingresosRenovaciones,
-                    cantidadRenovaciones,
-                    ingresosTotales
-                },
+            _context.CortesCaja.Add(corte);
+            await _context.SaveChangesAsync();
 
-                egresos = new
-                {
-                    comprasHoy,
-                    egresosTotales
-                },
-
-                resultados = new
-                {
-                    cajaFinal,
-                    ganancia
-                }
-            });
+            return Ok(new { mensaje = "Corte abierto", corte.Id });
         }
 
         // ============================================================
-        // 2. GUARDAR CORTE DEL PERIODO (CIERRE DE CAJA)
+        // 2. AGREGAR MOVIMIENTO (VENTA, VISITA, COMPRA…)
         // ============================================================
-        [HttpPost("cerrar")]
-        public async Task<IActionResult> GuardarCorte([FromBody] CorteCaja dto)
+        [HttpPost("movimiento")]
+        public async Task<IActionResult> RegistrarMovimiento([FromBody] MovimientoCaja dto)
         {
-            // La fecha del corte la pone el servidor (momento de cierre)
+            var corte = await _context.CortesCaja
+                .FirstOrDefaultAsync(c => c.Estado == 0);
+
+            if (corte == null)
+                return BadRequest(new { mensaje = "No hay corte de caja abierto" });
+
+            dto.CorteCajaId = corte.Id;
             dto.Fecha = DateTime.Now;
 
-            dto.Ganancia = dto.IngresosTotales - dto.EgresosTotales;
-            dto.CajaFinal = dto.CajaInicial + dto.Ganancia;
+            _context.MovimientosCaja.Add(dto);
+            await _context.SaveChangesAsync();
 
-            _context.CortesCaja.Add(dto);
+            return Ok(new { mensaje = "Movimiento registrado" });
+        }
+
+        // ============================================================
+        // 3. CERRAR CORTE
+        // ============================================================
+        [HttpPost("cerrar")]
+        public async Task<IActionResult> Cerrar()
+        {
+            var corte = await _context.CortesCaja
+                .Include(c => c.Movimientos)
+                .FirstOrDefaultAsync(c => c.Estado == 0);
+
+            if (corte == null)
+                return BadRequest(new { mensaje = "No hay corte abierto" });
+
+            // Calcular total del corte
+            var totalMovimientos = corte.Movimientos.Sum(m => m.Monto);
+
+            corte.MontoFinal = corte.MontoInicial + totalMovimientos;
+            corte.FechaCierre = DateTime.Now;
+            corte.Estado = 1;
+
             await _context.SaveChangesAsync();
 
             return Ok(new
             {
-                mensaje = "Corte de caja guardado correctamente",
-                id = dto.Id
+                mensaje = "Corte cerrado correctamente",
+                corte.Id,
+                corte.MontoFinal,
+                totalMovimientos
             });
         }
 
         // ============================================================
-        // 3. HISTORIAL POR DÍA
+        // 4. CONSULTAR UN CORTE ESPECÍFICO
+        // ============================================================
+        [HttpGet("{id}")]
+        public async Task<IActionResult> ObtenerCorte(int id)
+        {
+            var corte = await _context.CortesCaja
+                .Include(c => c.Movimientos)
+                .FirstOrDefaultAsync(c => c.Id == id);
+
+            if (corte == null)
+                return NotFound();
+
+            return Ok(corte);
+        }
+
+        // ============================================================
+        // 5. CORTES POR DÍA
         // ============================================================
         [HttpGet("historial/dia")]
         public async Task<IActionResult> CortesPorDia([FromQuery] DateTime fecha)
         {
-            var cortes = await _context.CortesCaja
-                .Where(c => c.Fecha.Date == fecha.Date)
-                .OrderBy(c => c.Fecha)
+            var res = await _context.CortesCaja
+                .Where(c => c.FechaApertura.Date == fecha.Date)
+                .Include(c => c.Movimientos)
+                .OrderBy(c => c.FechaApertura)
                 .ToListAsync();
 
-            return Ok(cortes);
+            return Ok(res);
         }
 
-        // 4. HISTORIAL SEMANAL
-        [HttpGet("historial/semana")]
-        public async Task<IActionResult> CortesSemana()
-        {
-            var hoy = DateTime.Today;
-            var inicioSemana = hoy.AddDays(-(int)hoy.DayOfWeek + 1);
-
-            var cortes = await _context.CortesCaja
-                .Where(c => c.Fecha.Date >= inicioSemana)
-                .OrderBy(c => c.Fecha)
-                .ToListAsync();
-
-            return Ok(cortes);
-        }
-
-        // 5. HISTORIAL MENSUAL
+        // ============================================================
+        // 6. HISTORIAL MENSUAL
+        // ============================================================
         [HttpGet("historial/mes")]
-        public async Task<IActionResult> CortesMes([FromQuery] int year, [FromQuery] int month)
+        public async Task<IActionResult> CortesMes(int year, int month)
         {
-            var cortes = await _context.CortesCaja
-                .Where(c => c.Fecha.Year == year && c.Fecha.Month == month)
-                .OrderBy(c => c.Fecha)
+            var res = await _context.CortesCaja
+                .Where(c => c.FechaApertura.Year == year && c.FechaApertura.Month == month)
+                .Include(c => c.Movimientos)
+                .OrderBy(c => c.FechaApertura)
                 .ToListAsync();
 
-            return Ok(cortes);
+            return Ok(res);
         }
     }
 }
